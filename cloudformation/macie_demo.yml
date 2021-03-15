@@ -393,6 +393,11 @@ Resources:
     Type: "AWS::S3::Bucket"
     Properties:
       BucketName: !Sub "macie-isolation-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+            BucketKeyEnabled: false
       Tags:
         - Key: Name
           Value: !Ref ProjectName
