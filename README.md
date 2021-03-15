@@ -55,10 +55,8 @@ DATA_BUCKET=$(aws ssm get-parameter \
     --name /macie_demo/patient_data_bucket \
     --query 'Parameter.Value')
 
-aws s3 cp \
-    synthea_data/ \
-    "s3://${DATA_BUCKET}/patient_data/" \
-    --recursive
+aws s3 cp synthea_data/ \
+    "s3://${DATA_BUCKET}/patient_data/" --recursive
 
 aws s3 ls "s3://${DATA_BUCKET}/patient_data/"
 ```
@@ -94,4 +92,7 @@ aws s3 rm --recursive "s3://${ISOLATION_BUCKET}"
 aws s3 rm --recursive "s3://${DATA_BUCKET}"
 
 aws cloudformation delete-stack --stack-name macie-demo
+
+# disabling macie
+aws macie2 disable-macie
 ```
