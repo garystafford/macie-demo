@@ -1,0 +1,428 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack for Amazon Macie, EventBridge, Lambda demo.
+Parameters:
+  ProjectName:
+    Description: Name of the Project
+    Type: String
+    Default: "Amazon Macie Demo"
+  EnvironmentName:
+    Description: Environment name (e.g., Development, Test, Production)
+    Type: String
+    Default: "Development"
+  SNSTopicEndpointSms:
+    Description: SNS Topic endpoint - SMS text phone number
+    Type: String
+  SNSTopicEndpointEmail:
+    Description: SNS Topic endpoint - email address
+    Type: String
+Resources:
+  CustomDataIdentifierPatient:
+    Type: "AWS::Macie::CustomDataIdentifier"
+    Properties:
+      Description: "Patient ID CDI (e.g., 034e9e3b-2def-4559-bb2a-7850888ae060)"
+      Keywords:
+        - "PATIENT"
+      Name: "Patient ID"
+      Regex: "[a-z,0-9]{8}-[a-z,0-9]{4}-[a-z,0-9]{4}-[a-z,0-9]{4}-[a-z,0-9]{12}"
+  CustomDataIdentifierDriverLicense:
+    Type: "AWS::Macie::CustomDataIdentifier"
+    Properties:
+      Description: "US Driver License CDI (e.g., S99927915)"
+      Keywords:
+        - "DRIVERS"
+      Name: "US Driver License"
+      Regex: "[S]{1}\\d{8}"
+  CustomDataIdentifierPassport:
+    Type: "AWS::Macie::CustomDataIdentifier"
+    Properties:
+      Description: "US Passport CDI (e.g., X70531895X)"
+      Keywords:
+        - "PASSPORT"
+      Name: "US Passport"
+      Regex: "[X]{1}\\d{8}[X]{1}"
+  LambdaExecutionPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      Path: "/service-role/"
+      PolicyDocument: !Sub |
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "logs:CreateLogGroup",
+                    "Resource": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "logs:CreateLogStream",
+                        "logs:PutLogEvents"
+                    ],
+                    "Resource": [
+                        "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/macie-object-mover:*"
+                    ]
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "s3:PutObject",
+                        "s3:GetObject",
+                        "s3:DeleteObject"
+                    ],
+                    "Resource": [
+                        "arn:aws:s3:::${PatientDataBucket}/*",
+                        "arn:aws:s3:::${DataIsolationBucket}/*"
+                    ]
+                }
+            ]
+        }
+  LambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "Moves and deletes S3 objects flagged by Amazon Macie"
+      FunctionName: "macie-object-mover"
+      Handler: "index.lambda_handler"
+      Code:
+        ZipFile: !Sub |
+          import json
+          import logging
+          import boto3
+          from botocore.exceptions import ClientError
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          s3_client = boto3.client('s3')
+
+          def lambda_handler(event, context):
+              logging.info(f'event: {json.dumps(event)}')
+
+              destination_bucket_name = '${DataIsolationBucket}'
+              source_bucket_name = event['detail']['resourcesAffected']['s3Bucket']['name']
+              file_key_name = event['detail']['resourcesAffected']['s3Object']['key']
+              copy_source_object = {'Bucket': source_bucket_name, 'Key': file_key_name}
+
+              logging.debug(f'destination_bucket_name: {destination_bucket_name}')
+              logging.debug(f'source_bucket_name: {source_bucket_name}')
+              logging.debug(f'file_key_name: {file_key_name}')
+
+              try:
+                  response = s3_client.copy_object(
+                      CopySource=copy_source_object,
+                      Bucket=destination_bucket_name,
+                      Key=file_key_name
+                  )
+                  logger.info(response)
+              except ClientError as ex:
+                  logger.error(ex)
+                  exit(1)
+
+              try:
+                  response = s3_client.delete_object(
+                      Bucket=source_bucket_name,
+                      Key=file_key_name
+                  )
+                  logger.info(response)
+              except ClientError as ex:
+                  logger.error(ex)
+                  exit(1)
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps(copy_source_object)
+              }
+      MemorySize: 128
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: "python3.8"
+      Timeout: 3
+      TracingConfig:
+        Mode: "PassThrough"
+      Tags:
+        - Key: Name
+          Value: !Ref ProjectName
+  LambdaVersion:
+    Type: "AWS::Lambda::Version"
+    Properties:
+      Description: ""
+      FunctionName: !Ref LambdaFunction
+  LambdaPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt MacieEventRuleHigh.Arn
+  LambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/service-role/"
+      AssumeRolePolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      MaxSessionDuration: 3600
+      ManagedPolicyArns:
+        - !Ref LambdaExecutionPolicy
+  MacieEventRuleHigh:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: "macie-rule-high"
+      Description: "Amazon Macie - High Finding"
+      EventPattern: !Sub |
+        {
+          "source": ["aws.macie"],
+          "detail-type": ["Macie Finding"],
+          "detail": {
+            "severity": {
+              "description": ["High"]
+            }
+          }
+        }
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: "MacieEventRuleLambdaFunctionId"
+        - Arn: !Ref SNSTopicHigh
+          Id: "MacieEventRuleSNSTopicId"
+          InputTransformer:
+            InputPathsMap:
+              account: $.account
+              type: $.detail-type
+              id: $.detail.classificationDetails.jobId
+              file: $.detail.resourcesAffected.s3Object.path
+              severity: $.detail.severity.description
+            InputTemplate: |
+              "Amazon Macie Finding Notification: Job Id <id>, AWS Account <account>. Severity of <severity> for file '<file>'."
+      EventBusName: "default"
+  MacieEventRuleLowMed:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: "macie-rule-low-medium"
+      Description: "Amazon Macie - Low or Medium Finding"
+      EventPattern: !Sub |
+        {
+          "source": ["aws.macie"],
+          "detail-type": ["Macie Finding"],
+          "detail": {
+            "severity": {
+              "description": ["Medium", "Low"]
+            }
+          }
+        }
+      State: "ENABLED"
+      Targets:
+        - Arn: !Ref SNSTopicLowMed
+          Id: "MacieEventRuleSNSTopicId"
+          InputTransformer:
+            InputPathsMap:
+              account: $.account
+              type: $.detail-type
+              id: $.detail.classificationDetails.jobId
+              file: $.detail.resourcesAffected.s3Object.path
+              severity: $.detail.severity.description
+            InputTemplate: |
+              "Amazon Macie Finding Notification: Job Id <id>, AWS Account <account>. Severity of <severity> for file '<file>'."
+      EventBusName: "default"
+  MacieEventRuleCustomPatientId:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: "macie-rule-custom"
+      Description: "Amazon Macie - Custom Patient ID Finding"
+      EventPattern: !Sub |
+        {
+          "source": [
+            "aws.macie"
+          ],
+          "detail-type": [
+            "Macie Finding"
+          ],
+          "detail": {
+            "classificationDetails": {
+              "result": {
+                "customDataIdentifiers": {
+                  "detections": {
+                    "name": [
+                      "Patient ID",
+                      "US Passport",
+                      "US Driver License"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      State: "ENABLED"
+      Targets:
+        - Arn: !Ref SNSTopicHigh
+          Id: "MacieEventRuleSNSTopicId"
+          InputTransformer:
+            InputPathsMap:
+              account: $.account
+              type: $.detail-type
+              id: $.detail.classificationDetails.jobId
+              file: $.detail.resourcesAffected.s3Object.path
+              severity: $.detail.severity.description
+            InputTemplate: |
+              "Amazon Macie Finding Notification: Job Id <id>, AWS Account <account>. Severity of <severity> for file '<file>'."
+      EventBusName: "default"
+  SNSTopicHigh:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: ""
+      TopicName: "macie-eventbridge-topic-high"
+  SNSTopicLowMed:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: ""
+      TopicName: "macie-eventbridge-topic-low-medium"
+  SNSTopicPolicyHigh:
+    Type: "AWS::SNS::TopicPolicy"
+    Properties:
+      PolicyDocument: !Sub |
+        {
+            "Version": "2008-10-17",
+            "Id": "default_policy_id",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "AWS": "*"
+                    },
+                    "Action": [
+                        "SNS:GetTopicAttributes",
+                        "SNS:SetTopicAttributes",
+                        "SNS:AddPermission",
+                        "SNS:RemovePermission",
+                        "SNS:DeleteTopic",
+                        "SNS:Subscribe",
+                        "SNS:ListSubscriptionsByTopic",
+                        "SNS:Publish",
+                        "SNS:Receive"
+                    ],
+                    "Resource": "${SNSTopicHigh}",
+                    "Condition": {
+                        "StringEquals": {
+                            "AWS:SourceOwner": "${AWS::AccountId}"
+                        }
+                    }
+                },
+                {
+                    "Sid": "awsevent_macie_rule_id",
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": "events.amazonaws.com"
+                    },
+                    "Action": "sns:Publish",
+                    "Resource": "${SNSTopicHigh}"
+                }
+            ]
+        }
+      Topics:
+        - !Ref SNSTopicHigh
+  SNSTopicPolicyLowMed:
+    Type: "AWS::SNS::TopicPolicy"
+    Properties:
+      PolicyDocument: !Sub |
+        {
+            "Version": "2008-10-17",
+            "Id": "default_policy_id",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "AWS": "*"
+                    },
+                    "Action": [
+                        "SNS:GetTopicAttributes",
+                        "SNS:SetTopicAttributes",
+                        "SNS:AddPermission",
+                        "SNS:RemovePermission",
+                        "SNS:DeleteTopic",
+                        "SNS:Subscribe",
+                        "SNS:ListSubscriptionsByTopic",
+                        "SNS:Publish",
+                        "SNS:Receive"
+                    ],
+                    "Resource": "${SNSTopicLowMed}",
+                    "Condition": {
+                        "StringEquals": {
+                            "AWS:SourceOwner": "${AWS::AccountId}"
+                        }
+                    }
+                },
+                {
+                    "Sid": "awsevent_macie_rule_id",
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": "events.amazonaws.com"
+                    },
+                    "Action": "sns:Publish",
+                    "Resource": "${SNSTopicLowMed}"
+                }
+            ]
+        }
+      Topics:
+        - !Ref SNSTopicLowMed
+  SNSSubscriptionEmail:
+    Type: "AWS::SNS::Subscription"
+    Properties:
+      TopicArn: !Ref SNSTopicLowMed
+      Endpoint: !Ref SNSTopicEndpointEmail
+      Protocol: "email"
+      Region: !Ref AWS::Region
+  SNSSubscriptionSms:
+    Type: "AWS::SNS::Subscription"
+    Properties:
+      TopicArn: !Ref SNSTopicHigh
+      Endpoint: !Ref SNSTopicEndpointSms
+      Protocol: "sms"
+      Region: !Ref AWS::Region
+  DataIsolationBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "macie-isolation-${AWS::AccountId}-${AWS::Region}"
+      Tags:
+        - Key: Name
+          Value: !Ref ProjectName
+  PatientDataBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "synthea-data-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+            BucketKeyEnabled: false
+      Tags:
+        - Key: Name
+          Value: !Ref ProjectName
+  DataIsolationBucketParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: "/macie_demo/isolated_data_bucket"
+      Type: String
+      Value: !Ref DataIsolationBucket
+      Description: Isolated data bucket name
+      Tags:
+        Environment: !Ref EnvironmentName
+  PatientDataBucketParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: "/macie_demo/patient_data_bucket"
+      Type: String
+      Value: !Ref PatientDataBucket
+      Description: Raw patient data bucket name
+      Tags:
+        Environment: !Ref EnvironmentName

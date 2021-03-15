@@ -1,0 +1,29 @@
+{
+    "customDataIdentifierIds": [
+        "custom-data-identifier-id-1",
+        "custom-data-identifier-id-2",
+        "custom-data-identifier-id-3"
+    ],
+    "description": "Review Synthea patient data (Daily)",
+    "initialRun": true,
+    "jobType": "SCHEDULED",
+    "name": "SyntheaPatientData_Daily",
+    "s3JobDefinition": {
+        "bucketDefinitions": [
+            {
+                "accountId": "111222333444",
+                "buckets": [
+                    "synthea-data-111222333444-us-east-1"
+                ]
+            }
+        ]
+    },
+    "samplingPercentage": 100,
+    "scheduleFrequency": {
+        "dailySchedule": {}
+    },
+    "tags": {
+        "KeyName": "Project",
+        "KeyValue": "Amazon Macie Demo"
+    }
+}

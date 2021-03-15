@@ -1,0 +1,23 @@
+{
+    "customDataIdentifierIds": [
+        "custom-data-identifier-id-1",
+        "custom-data-identifier-id-2",
+        "custom-data-identifier-id-3"
+    ],
+    "description": "Review Synthea patient data (1x)",
+    "jobType": "ONE_TIME",
+    "s3JobDefinition": {
+        "bucketDefinitions": [
+            {
+                "accountId": "111222333444",
+                "buckets": [
+                    "synthea-data-111222333444-us-east-1"
+                ]
+            }
+        ]
+    },
+    "tags": {
+        "KeyName": "Project",
+        "KeyValue": "Amazon Macie Demo"
+    }
+}
