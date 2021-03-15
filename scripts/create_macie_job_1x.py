@@ -57,7 +57,22 @@ def create_classification_job(patient_data_bucket, account_id, custom_data_ident
                             patient_data_bucket
                         ]
                     }
-                ]
+                ],
+                'scoping': {
+                    'includes': {
+                        'and': [
+                            {
+                                'simpleScopeTerm': {
+                                    'comparator': 'EQ',
+                                    'key': 'OBJECT_EXTENSION',
+                                    'values': [
+                                        'csv',
+                                    ]
+                                }
+                            },
+                        ]
+                    }
+                }
             },
             tags={
                 'Project': 'Amazon Macie Demo'

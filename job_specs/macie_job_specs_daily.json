@@ -16,7 +16,22 @@
                     "synthea-data-111222333444-us-east-1"
                 ]
             }
-        ]
+        ],
+        "scoping": {
+            "includes": {
+                "and": [
+                    {
+                        "simpleScopeTerm": {
+                            "comparator": "EQ",
+                            "key": "OBJECT_EXTENSION",
+                            "values": [
+                                "csv"
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
     },
     "samplingPercentage": 100,
     "scheduleFrequency": {
