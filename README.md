@@ -20,7 +20,9 @@ wget "https://storage.googleapis.com/synthea-public/${REMOTE_FILE}"
 curl -O "https://storage.googleapis.com/synthea-public/${REMOTE_FILE}"
 
 unzip -j "${REMOTE_FILE}" -d synthea_data/
+```
 
+```shell script
 # enabling macie
 aws macie2 enable-macie
 
@@ -39,16 +41,29 @@ aws cloudformation create-stack \
   --parameters ParameterKey=SNSTopicEndpointSms,ParameterValue=${SNS_PHONE} \
   ParameterKey=SNSTopicEndpointEmail,ParameterValue=${SNS_EMAIL} \
   --capabilities CAPABILITY_NAMED_IAM
+```
+
+```shell script
+# get bucket names
+aws ssm get-parameters-by-path \
+  --path /macie_demo/ \
+  --query 'Parameters[*].Value'
 
 # upload data
-DATA_BUCKET=synthea-data-111222333444-us-east-1
+# DATA_BUCKET=synthea-data-676164205626-us-east-1
+DATA_BUCKET=$(aws ssm get-parameter \
+    --name /macie_demo/patient_data_bucket \
+    --query 'Parameter.Value')
+
 aws s3 cp \
     synthea_data/ \
     "s3://${DATA_BUCKET}/patient_data/" \
     --recursive
 
 aws s3 ls "s3://${DATA_BUCKET}/patient_data/"
+```
 
+```shell script
 # create classification job
 aws macie2 create-classification-job --generate-cli-skeleton
 
@@ -69,7 +84,9 @@ aws macie2 create-classification-job \
 
 python3 ./scripts/create_macie_job_1x.py
 python3 ./scripts/create_macie_job_daily.py
+```
 
+```shell script
 # clean up
 ISOLATION_BUCKET=macie-isolation-111222333444-us-east-1
 aws s3 rm --recursive "s3://${ISOLATION_BUCKET}"
