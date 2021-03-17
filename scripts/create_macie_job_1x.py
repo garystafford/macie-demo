@@ -32,10 +32,10 @@ def list_custom_data_identifiers():
         response = macie_client.list_custom_data_identifiers()
         for item in response['items']:
             custom_data_identifiers.append(item['id'])
+        return custom_data_identifiers
     except ClientError as e:
         logging.error(e)
-    finally:
-        return custom_data_identifiers
+        exit(1)
 
 
 def create_classification_job(patient_data_bucket, account_id, custom_data_identifiers):
