@@ -4,6 +4,7 @@
 # Author:  Gary A. Stafford (March 2021)
 
 import logging
+import sys
 import time
 
 import boto3
@@ -35,7 +36,7 @@ def list_custom_data_identifiers():
         return custom_data_identifiers
     except ClientError as e:
         logging.error(e)
-        exit(1)
+        sys.exit(e)
 
 
 def create_classification_job(patient_data_bucket, account_id, custom_data_identifiers):
@@ -80,8 +81,7 @@ def create_classification_job(patient_data_bucket, account_id, custom_data_ident
         print(f'Response: {response}')
     except ClientError as e:
         logging.error(e)
-        return False
-    return True
+        sys.exit(e)
 
 
 def get_parameters():
