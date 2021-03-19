@@ -81,7 +81,7 @@ def create_classification_job(patient_data_bucket, account_id, custom_data_ident
                 'Project': 'Amazon Macie Demo'
             }
         )
-        print(f'Response: {response}')
+        logging.debug(f'Response: {response}')
     except ClientError as e:
         logging.error(e)
         sys.exit(e)
