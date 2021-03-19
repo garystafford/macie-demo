@@ -50,10 +50,10 @@ aws ssm get-parameters-by-path \
   --query 'Parameters[*].Value'
 
 # upload data
-# DATA_BUCKET=synthea-data-676164205626-us-east-1
-DATA_BUCKET=$(aws ssm get-parameter \
-    --name /macie_demo/patient_data_bucket \
-    --query 'Parameter.Value')
+DATA_BUCKET=synthea-data-111222333444-us-east-1
+# DATA_BUCKET=$(aws ssm get-parameter \
+#     --name /macie_demo/patient_data_bucket \
+#     --query 'Parameter.Value')
 
 aws s3 cp synthea_data/ \
     "s3://${DATA_BUCKET}/patient_data/" --recursive
